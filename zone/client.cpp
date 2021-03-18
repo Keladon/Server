@@ -267,7 +267,13 @@ Client::Client(EQStreamInterface* ieqs)
 	mercSlot = 0;
 	InitializeMercInfo();
 	SetMerc(0);
+	
 	if (RuleI(World, PVPMinLevel) > 0 && level >= RuleI(World, PVPMinLevel) && m_pp.pvp == 0) SetPVP(true, false);
+	
+	if (RuleI(World, PVPSettings) > 0) {
+		SendPVPStats();
+	}
+
 	dynamiczone_removal_timer.Disable();
 
 	//for good measure:
@@ -505,8 +511,8 @@ void Client::SendZoneInPackets()
 		//SendAppearancePacket(AT_PVP, GetPVP(false), true, false);	 Commented out 1/28/21 Darksinga edits
 	if (IsEvil())  //Evil has a red tag
 		SendAppearancePacket(AT_PVP, IsEvil(), true, false); //rencro via xachary
-	if (IsGood())  //Good has a green tag
-		SendAppearancePacket(AT_GM, IsGood(), true, false); //Darksinga edits
+	if (IsGood())  //Good has a blue tag
+		SendAppearancePacket(AT_PVP, 0, false); //Darksinga edits
 	if (IsNeutral())  //Neutral has a blue tag
 		SendAppearancePacket(AT_PVP, 0, false); //Darksinga edits
 
@@ -3436,7 +3442,7 @@ void Client::LinkDead()
 		expedition->SetMemberStatus(this, ExpeditionMemberStatus::LinkDead);
 	}
 
-//	save_timer.Start(2500);
+	//save_timer.Start(2500);
 	linkdead_timer.Start(RuleI(Zone,ClientLinkdeadMS));
 	SendAppearancePacket(AT_Linkdead, 1);
 	client_state = CLIENT_LINKDEAD;
@@ -4849,31 +4855,6 @@ void Client::UpdateRestTimer(uint32 new_timer)
 		}
 	}
 }
-
-void Client::SendPVPStats()
-{
-	// This sends the data to the client to populate the PVP Stats Window.
-	//
-	// When the PVP Stats window is opened, no opcode is sent. Therefore this method should be called
-	// from Client::CompleteConnect, and also when the player makes a PVP kill.
-	//
-	auto outapp = new EQApplicationPacket(OP_PVPStats, sizeof(PVPStats_Struct));
-	PVPStats_Struct *pvps = (PVPStats_Struct *)outapp->pBuffer;
-
-	pvps->Kills = m_pp.PVPKills;
-	pvps->Deaths = m_pp.PVPDeaths;
-	pvps->PVPPointsAvailable = m_pp.PVPCurrentPoints;
-	pvps->TotalPVPPoints = m_pp.PVPCareerPoints;
-	pvps->BestKillStreak = m_pp.PVPBestKillStreak;
-	pvps->WorstDeathStreak = m_pp.PVPWorstDeathStreak;
-	pvps->CurrentKillStreak = m_pp.PVPCurrentKillStreak;
-
-	// TODO: Record and send other PVP Stats
-
-	QueuePacket(outapp);
-	safe_delete(outapp);
-}
-
 void Client::SendCrystalCounts()
 {
 	auto outapp = new EQApplicationPacket(OP_CrystalCountUpdate, sizeof(CrystalCountUpdate_Struct));
@@ -10028,13 +10009,13 @@ bool Client::CanPvP(Client *c) {
 		return true;
 	
 	// if both are in a pvp area, or discord, return true
-	if (GetPVP() && c->GetPVP()) 
-		return true;
+	//if (GetPVP() && c->GetPVP()) --commented out 2/28/21 to troubleshoot an issue... Darksinga
+	//	return true;
 
 	//If PVPLevelDifference is enabled, only allow PVP if players are of proper range
 	int rule_level_diff = 0;
 	if (RuleI(World, PVPSettings) == 4)
-		rule_level_diff = 100; //Sullon Zek rules can attack anyone of opposing deity.
+		rule_level_diff = 4; //Sullon Zek rules can attack anyone of opposing deity.
 	if (RuleI(World, PVPLevelDifference) > 0)
 		rule_level_diff = RuleI(World, PVPLevelDifference);
 
@@ -10099,3 +10080,104 @@ int Client::GetPVPRaceTeamBySize() {
 		return 4;
 	return 1;
 }
+
+
+void Client::SendPVPStats()
+{
+	auto outapp = new EQApplicationPacket(OP_PVPStats, sizeof(PVPStats_Struct));
+	PVPStats_Struct *pvps = (PVPStats_Struct *)outapp->pBuffer;
+
+	pvps->Kills = m_pp.PVPKills;
+	pvps->Deaths = m_pp.PVPDeaths;
+	pvps->PVPPointsAvailable = m_pp.PVPCurrentPoints;
+	pvps->TotalPVPPoints = m_pp.PVPCareerPoints;
+	pvps->BestKillStreak = m_pp.PVPBestKillStreak;
+	pvps->WorstDeathStreak = m_pp.PVPWorstDeathStreak;
+	pvps->CurrentKillStreak = m_pp.PVPCurrentKillStreak;
+	pvps->Vitality = m_pp.PVPVitality;
+	pvps->Infamy = m_pp.PVPInfamy;
+
+	database.GetLastPVPKill(this, pvps);
+	database.GetLastPVPDeath(this, pvps);
+	database.GetPVPKillsLast24Hours(this, pvps);
+
+	QueuePacket(outapp);
+	safe_delete(outapp);
+}
+void Client::SendPVPLeaderBoard() 
+{
+	auto outapp = new EQApplicationPacket(OP_PVPLeaderBoardReply, sizeof(PVPLeaderBoard_Struct));
+	PVPLeaderBoard_Struct *pvplb = (PVPLeaderBoard_Struct *)outapp->pBuffer;
+
+	database.GetPVPLeaderBoard(this, pvplb, "pvp_kills");
+
+	QueuePacket(outapp);
+	safe_delete(outapp);
+}
+int Client::CalculatePVPPoints(Client* killer, Client* victim) 
+{
+	float points;
+	float pvp_points;
+	float level_difference;
+	float scoring_modifier;	
+	float infamy_difference;
+	int divider_modifier;
+	int vitality = victim->m_pp.PVPVitality;
+
+	level_difference = victim->GetLevel() - killer->GetLevel();
+	
+	infamy_difference = victim->m_pp.PVPInfamy - killer->m_pp.PVPInfamy; 
+		
+	scoring_modifier = ( level_difference + infamy_difference + (vitality*=-1.0) ) * 5.0;
+		
+	divider_modifier = database.GetKillCount24Hours(killer, victim);
+		
+	points = (100 + scoring_modifier);
+	
+        if (divider_modifier > 1) {	
+            for (int i=divider_modifier; i > 0; i--)
+            {		
+                points = points / 2;
+              		  
+                if (points < 1.0) {
+                    pvp_points = (divider_modifier + scoring_modifier) * divider_modifier / 5;
+                } else {
+                    pvp_points = points;
+	        }
+            }
+        } else {
+           pvp_points = points;
+        }
+
+	return (int)pvp_points;
+}
+void Client::HandlePVPDeath()
+{
+	m_pp.PVPDeaths += 1;
+	m_pp.PVPVitality = 10;	
+	m_pp.PVPCurrentDeathStreak += 1;
+
+	if (m_pp.PVPCurrentDeathStreak > m_pp.PVPWorstDeathStreak)
+		m_pp.PVPWorstDeathStreak = m_pp.PVPCurrentDeathStreak;		
+
+	Save();
+
+	SendPVPStats();
+}
+void Client::HandlePVPKill(uint32 Points)
+{
+	m_pp.PVPCurrentPoints += Points;
+	m_pp.PVPCareerPoints += Points;
+
+	m_pp.PVPKills +=1;
+	m_pp.PVPCurrentKillStreak +=1;
+	m_pp.PVPCurrentDeathStreak = 0;
+
+	if (m_pp.PVPCurrentKillStreak > m_pp.PVPBestKillStreak)	
+		m_pp.PVPBestKillStreak = m_pp.PVPCurrentKillStreak;
+
+	Save();
+
+	SendPVPStats();
+}
+
