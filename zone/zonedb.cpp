@@ -4989,7 +4989,9 @@ int ZoneDatabase::GetKillCount24Hours(Client* killer, Client* victim)
         std::string query = StringFormat("SELECT COUNT(id) FROM character_pvp_entries WHERE killer_id = %i AND victim_id = %i AND timestamp <= TIMESTAMPADD(DAY, 1, NOW())", killer->CharacterID(), victim->CharacterID());
 
 	auto results = QueryDatabase(query);
-	
+
+	auto row = results.begin();
+
         if (!results.Success()) {
 		LogError(results.ErrorMessage().c_str());
 		return 0;	
@@ -5000,7 +5002,7 @@ int ZoneDatabase::GetKillCount24Hours(Client* killer, Client* victim)
 	}
 
 	if (results.RowCount() > 0) {
-		return (results.RowCount() + 1);
+		return atoi(row[0]);
 	}
 }	
 void ZoneDatabase::GetPVPLeaderBoardDetails(PVPLeaderBoardDetailsReply_Struct* pvplbdr, const char *name) {
