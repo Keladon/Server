@@ -1098,7 +1098,7 @@ public:
 	
 	int CalculatePVPPoints(Client* killer, Client* victim);
 
-	void HandlePVPDeath(uint32 points);
+	void HandlePVPDeath(void);
 	void HandlePVPKill(uint32 points);
 	void SendPVPStats();
 	void SendPVPLeaderBoard();
