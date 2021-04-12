@@ -516,6 +516,8 @@ void Client::SendZoneInPackets()
 	if (IsNeutral())  //Neutral has a blue tag
 		SendAppearancePacket(AT_PVP, 0, false); //Darksinga edits
 
+	SendPVPStats();
+
 	//Send AA Exp packet:
 	if (GetLevel() >= 51)
 		SendAlternateAdvancementStats();
@@ -10151,11 +10153,27 @@ int Client::CalculatePVPPoints(Client* killer, Client* victim)
 
 	return (int)pvp_points;
 }
-void Client::HandlePVPDeath()
+void Client::HandlePVPDeath(uint32 Points)
 {
 	m_pp.PVPDeaths += 1;
 	m_pp.PVPVitality = 10;	
 	m_pp.PVPCurrentDeathStreak += 1;
+
+	if(m_pp.PVPCurrentPoints > 0) {
+		m_pp.PVPCurrentPoints -= Points;	
+
+		if(m_pp.PVPCurrentPoints < 0) {
+			m_pp.PVPCurrentPoints = 0;
+		}
+	}
+
+	if(m_pp.PVPCareerPoints > 0) {
+		m_pp.PVPCareerPoints -= Points;	
+
+		if(m_pp.PVPCareerPoints < 0) {
+			m_pp.PVPCareerPoints = 0;
+		}
+	}
 
 	if (m_pp.PVPCurrentDeathStreak > m_pp.PVPWorstDeathStreak)
 		m_pp.PVPWorstDeathStreak = m_pp.PVPCurrentDeathStreak;		
@@ -10168,6 +10186,14 @@ void Client::HandlePVPKill(uint32 Points)
 {
 	m_pp.PVPCurrentPoints += Points;
 	m_pp.PVPCareerPoints += Points;
+	
+	if(m_pp.PVPCurrentPoints < 0) {
+		m_pp.PVPCurrentPoints = 0;
+	}
+	
+	if(m_pp.PVPCareerPoints < 0) {
+		m_pp.PVPCareerPoints = 0;
+	}
 
 	m_pp.PVPKills +=1;
 	m_pp.PVPCurrentKillStreak +=1;
